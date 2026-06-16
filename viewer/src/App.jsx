@@ -26,6 +26,7 @@ function App() {
   const [fileContent, setFileContent] = useState('');
   const [viewMode, setViewMode] = useState('preview'); // 'preview' or 'raw'
   const [loading, setLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   
   // Folder expansion state: mapping path keys to boolean
   const [expandedPaths, setExpandedPaths] = useState({
@@ -160,6 +161,7 @@ function App() {
     const activeWithStatus = storedStatus ? { ...file, status: storedStatus } : file;
     
     setActiveFile(activeWithStatus);
+    setSidebarOpen(false); // Close sidebar on mobile
   };
 
   const handleCloseFile = (e, relativePath) => {
@@ -325,16 +327,24 @@ function App() {
 
       {/* Title Bar / Header */}
       <header className="main-header">
-        <div className="logo-section">
-          <span className="logo-emoji">📖</span>
-          <h1>Study Desk</h1>
+        <div className="header-left">
+          <button className="menu-toggle-btn" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            {sidebarOpen ? '✕' : '☰'}
+          </button>
+          <div className="logo-section">
+            <span className="logo-emoji">📖</span>
+            <h1>Study Desk</h1>
+          </div>
         </div>
       </header>
 
       {/* Main Workspace Frame */}
       <div className="workspace">
+        {/* Mobile Sidebar Backdrop */}
+        {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)}></div>}
+        
         {/* Sidebar - VS Code style Explorer */}
-        <aside className="sidebar">
+        <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
           <div className="sidebar-header">
             <h3>Explorer</h3>
           </div>
