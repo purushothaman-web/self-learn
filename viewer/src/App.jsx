@@ -213,6 +213,45 @@ function App() {
     fetchTree();
   };
 
+  const findFileInTree = (relativePath) => {
+    if (!tree) return null;
+    let found = null;
+    Object.keys(tree).forEach(trackKey => {
+      tree[trackKey].forEach(topic => {
+        topic.files.forEach(file => {
+          if (file.relativePath === relativePath) {
+            found = file;
+          }
+        });
+      });
+    });
+    return found;
+  };
+
+  const handleBodyClick = (e) => {
+    const anchor = e.target.closest('a');
+    if (anchor) {
+      const href = anchor.getAttribute('href');
+      if (href) {
+        if (href.startsWith('file:///')) {
+          e.preventDefault();
+          const rootFolderToken = 'self-skill/';
+          const idx = href.indexOf(rootFolderToken);
+          if (idx !== -1) {
+            const relativePath = href.substring(idx + rootFolderToken.length);
+            const fileObj = findFileInTree(relativePath);
+            if (fileObj) {
+              handleOpenFile(fileObj);
+            } else {
+              const fileName = relativePath.split('/').pop();
+              handleOpenFile({ name: fileName, relativePath, status: 'not-started' });
+            }
+          }
+        }
+      }
+    }
+  };
+
   const toggleFolder = (pathKey) => {
     setExpandedPaths(prev => ({
       ...prev,
@@ -431,7 +470,7 @@ function App() {
           )}
 
           {/* Render Area */}
-          <div className="content-body-wrapper">
+          <div className="content-body-wrapper" onClick={handleBodyClick}>
             {renderContent()}
           </div>
         </main>
