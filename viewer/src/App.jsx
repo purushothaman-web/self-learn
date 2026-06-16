@@ -20,6 +20,7 @@ marked.setOptions({
 
 function App() {
   const [tree, setTree] = useState(null);
+  const [staticDb, setStaticDb] = useState(null);
   const [openTabs, setOpenTabs] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [fileContent, setFileContent] = useState('');
@@ -38,22 +39,60 @@ function App() {
   const [toast, setToast] = useState({ message: '', show: false });
   const contentRef = useRef(null);
 
+  // Helper to load localStorage status overrides
+  const applyLocalStorageStatus = (treeData) => {
+    if (!treeData) return null;
+    const cloned = JSON.parse(JSON.stringify(treeData));
+    Object.keys(cloned).forEach(trackKey => {
+      cloned[trackKey].forEach(topic => {
+        topic.files.forEach(file => {
+          const storedStatus = localStorage.getItem(`status_${file.relativePath}`);
+          if (storedStatus) {
+            file.status = storedStatus;
+          }
+        });
+      });
+    });
+    return cloned;
+  };
+
   // Fetch the full file tree on mount
   const fetchTree = async () => {
     try {
       const res = await fetch('/api/tree');
+      if (!res.ok) throw new Error('API server not available');
       const data = await res.json();
-      setTree(data);
+      
+      const mergedTree = applyLocalStorageStatus(data);
+      setTree(mergedTree);
       
       // Auto-select first file on very first load
-      if (data && openTabs.length === 0 && !activeFile) {
-        const dsaTrack = data['dsa'];
+      if (mergedTree && openTabs.length === 0 && !activeFile) {
+        const dsaTrack = mergedTree['dsa'];
         if (dsaTrack && dsaTrack.length > 0 && dsaTrack[0].files && dsaTrack[0].files.length > 0) {
           handleOpenFile(dsaTrack[0].files[0]);
         }
       }
     } catch (err) {
-      showToast('Error loading file list');
+      // Fallback to static_db.json for Vercel/Serverless
+      try {
+        const staticRes = await fetch('/static_db.json');
+        if (!staticRes.ok) throw new Error('Static DB not found');
+        const dbData = await staticRes.json();
+        setStaticDb(dbData);
+        
+        const mergedTree = applyLocalStorageStatus(dbData.tree);
+        setTree(mergedTree);
+        
+        if (mergedTree && openTabs.length === 0 && !activeFile) {
+          const dsaTrack = mergedTree['dsa'];
+          if (dsaTrack && dsaTrack.length > 0 && dsaTrack[0].files && dsaTrack[0].files.length > 0) {
+            handleOpenFile(dsaTrack[0].files[0]);
+          }
+        }
+      } catch (staticErr) {
+        showToast('Error loading file list');
+      }
     }
   };
 
@@ -83,20 +122,27 @@ function App() {
   };
 
   const loadFileContent = async (relativePath) => {
+    // If staticDb content is already loaded, use it immediately (O(1) client lookup)
+    if (staticDb && staticDb.fileContents && staticDb.fileContents[relativePath] !== undefined) {
+      setFileContent(staticDb.fileContents[relativePath]);
+      setViewMode(relativePath.endsWith('.md') ? 'preview' : 'raw');
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch(`/api/file?path=${encodeURIComponent(relativePath)}`);
       const data = await res.json();
       setFileContent(data.content || '');
-      
-      // Default non-md files to 'raw' view only
-      if (!relativePath.endsWith('.md')) {
-        setViewMode('raw');
-      } else {
-        setViewMode('preview');
-      }
+      setViewMode(relativePath.endsWith('.md') ? 'preview' : 'raw');
     } catch (err) {
-      showToast('Error loading file content');
+      // Fallback to static data cache if network fails
+      if (staticDb && staticDb.fileContents && staticDb.fileContents[relativePath] !== undefined) {
+        setFileContent(staticDb.fileContents[relativePath]);
+        setViewMode(relativePath.endsWith('.md') ? 'preview' : 'raw');
+      } else {
+        showToast('Error loading file content');
+      }
     } finally {
       setLoading(false);
     }
@@ -108,7 +154,12 @@ function App() {
     if (!isAlreadyOpen) {
       setOpenTabs(prev => [...prev, file]);
     }
-    setActiveFile(file);
+    
+    // Make sure we load the local storage status for this file
+    const storedStatus = localStorage.getItem(`status_${file.relativePath}`);
+    const activeWithStatus = storedStatus ? { ...file, status: storedStatus } : file;
+    
+    setActiveFile(activeWithStatus);
   };
 
   const handleCloseFile = (e, relativePath) => {
@@ -129,7 +180,19 @@ function App() {
   const handleStatusChange = async (newStatus) => {
     if (!activeFile) return;
     setStatusDropdownOpen(false);
+
+    // Save status in browser local storage
+    localStorage.setItem(`status_${activeFile.relativePath}`, newStatus);
+    
+    // Update local status states immediately
+    const updatedFile = { ...activeFile, status: newStatus };
+    setActiveFile(updatedFile);
+    setOpenTabs(prev => prev.map(tab => 
+      tab.relativePath === activeFile.relativePath ? updatedFile : tab
+    ));
+
     try {
+      // Try posting to backend API
       const res = await fetch('/api/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -138,24 +201,16 @@ function App() {
       const data = await res.json();
       if (data.success) {
         showToast(`Marked as ${newStatus.replace('-', ' ')}`);
-        
-        // Update local status in active file
-        const updatedFile = { ...activeFile, status: newStatus };
-        setActiveFile(updatedFile);
-        
-        // Update status in open tabs
-        setOpenTabs(prev => prev.map(tab => 
-          tab.relativePath === activeFile.relativePath ? updatedFile : tab
-        ));
-        
-        // Refresh tree to update dots in sidebar
-        fetchTree();
       } else {
-        showToast(data.error || 'Failed to update status');
+        showToast('Saved to browser storage');
       }
     } catch (err) {
-      showToast('Error updating status');
+      // Fallback when offline or running hosted
+      showToast('Saved to browser storage (Static)');
     }
+
+    // Refresh tree to show new status dots in sidebar explorer
+    fetchTree();
   };
 
   const toggleFolder = (pathKey) => {
@@ -286,13 +341,18 @@ function App() {
                                 <div className="tree-node-children" style={{ paddingLeft: '1.25rem' }}>
                                   {topic.files.map(file => {
                                     const isActive = activeFile?.relativePath === file.relativePath;
+                                    
+                                    // Make sure status displays correctly based on live overrides
+                                    const storedStatus = localStorage.getItem(`status_${file.relativePath}`);
+                                    const displayStatus = storedStatus || file.status;
+                                    
                                     return (
                                       <div 
                                         key={file.relativePath}
                                         className={`tree-node-label ${isActive ? 'active' : ''}`}
                                         onClick={() => handleOpenFile(file)}
                                       >
-                                        <span className={`status-dot status-${file.status}`}></span>
+                                        <span className={`status-dot status-${displayStatus}`}></span>
                                         <span>{file.name}</span>
                                       </div>
                                     );

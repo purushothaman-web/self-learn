@@ -16,8 +16,19 @@
  * Output: false
  */
 function containsDuplicate(nums) {
-  // Write your code here
-  
+  const seenNumbers = new Set();
+
+  for (let i = 0; i < nums.length; i++) {
+    const currentNum = nums[i];
+
+    if (seenNumbers.has(currentNum)) {
+      return true;
+    }
+
+    seenNumbers.add(currentNum);
+  }
+
+  return false;
 }
 
 
@@ -38,8 +49,20 @@ function containsDuplicate(nums) {
  * Output: [1, 2]
  */
 function twoSum(nums, target) {
-  // Write your code here
-  
+  const seenNumbers = {};
+
+  for (let i = 0; i < nums.length; i++) {
+    const currentNum = nums[i];
+    const neededPartner = target - currentNum;
+
+    if (seenNumbers[neededPartner] !== undefined) {
+      return [seenNumbers[neededPartner], i];
+    }
+
+    seenNumbers[currentNum] = i;
+  }
+
+  return [];
 }
 
 // ==========================================

@@ -12,8 +12,16 @@
  * Constraint: The `realSecret` variable must NOT be directly accessible from the outside.
  */
 function createSecretAgent(realSecret) {
-  // Write your code here
-  
+  return {
+    guessSecret: function (guess) {
+      return guess === realSecret;
+    },
+    updateSecret: function (oldSecret, newSecret) {
+      if (oldSecret === realSecret) {
+        realSecret = newSecret;
+      }
+    }
+  };
 }
 
 
@@ -28,8 +36,9 @@ function createSecretAgent(realSecret) {
  * sayHello("Purushothaman") -> "Hello, Purushothaman!"
  */
 function makeGreeting(salutation) {
-  // Write your code here
-  
+  return function (name) {
+    return `${salutation}, ${name}!`;
+  };
 }
 
 // ==========================================
